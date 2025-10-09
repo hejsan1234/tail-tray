@@ -1,4 +1,5 @@
 #include "TrayMenuManager.h"
+#include "ScriptManager.h"
 
 #include <QClipboard>
 #include <QDesktopServices>
@@ -39,6 +40,7 @@ TrayMenuManager::TrayMenuManager(TailSettings& s, TailRunner* runner, QObject* p
     , settings(s)
     , pTailRunner(runner)
     , pSysCommand(std::make_unique<SysCommand>())
+    , scriptManager(s)
 {
     pTrayMenu = std::make_unique<QMenu>("Tail Tray");
 
@@ -217,17 +219,9 @@ void TrayMenuManager::buildConnectedMenu(const TailStatus& pTailStatus) {
                         new QString(file));
                 });
 
-                auto* test = netDevs->addMenu(name + ipStr);
-                disposableMenus.push_back(test);
-                action = test->addAction(tr("TEST"));
-                connect(action, &QAction::triggered, this, [this, dev, name](bool) {
-                    QClipboard* clipboard = QApplication::clipboard();
-                    const auto& str = dev.tailscaleIPs.first();
-                    qDebug() << str;
-                    clipboard->setText(str, QClipboard::Clipboard);
-
-                    emit ipAddressCopiedToClipboard(str, name);
-                });
+                storedDeviceIps.insert(dev.id, dev.tailscaleIPs.first());
+                storedDeviceDns.insert(dev.id, dev.dnsName);
+                rebuildScriptsMenu(dev.id, dev.tailscaleIPs.first(), dev.dnsName);
             }
             disposableConnectedMenuActions.push_back(action);
         }
@@ -333,7 +327,7 @@ void TrayMenuManager::buildConnectedMenu(const TailStatus& pTailStatus) {
         pTrayMenu->addSeparator()
     );
 
-    auto* exitNodes = pTrayMenu->addMenu(tr("Txit nodes"));
+    auto* exitNodes = pTrayMenu->addMenu(tr("Exit nodes"));
     disposableMenus.push_back(exitNodes);
 
     exitNodes->addAction(pExitNodeNone.get());
@@ -489,6 +483,55 @@ void TrayMenuManager::buildConnectedMenu(const TailStatus& pTailStatus) {
 
     pSysTray->setIcon(QIcon(":/icons/tray-on.png"));
     buildAccountsMenu();
+}
+
+void TrayMenuManager::rebuildScriptsMenu(const QString& deviceId, const QString& ip, const QString& dnsName) {
+    auto scripts = scriptManager.getDefinedScripts();
+
+    if (!scripts.isEmpty() && !deviceScriptMenus.contains(deviceId)) {
+        for (auto* m : disposableMenus) {
+            if (m->title().contains(ip, Qt::CaseInsensitive) ||
+                m->title().contains(dnsName, Qt::CaseInsensitive)) {
+
+                auto* scriptsMenu = m->addMenu(tr("Scriptable Actions"));
+                deviceScriptMenus.insert(deviceId, scriptsMenu);
+                disposableMenus.push_back(scriptsMenu);
+
+                storedDeviceIps.insert(deviceId, ip);
+                storedDeviceDns.insert(deviceId, dnsName);
+                break;
+            }
+        }
+    }
+
+    if (!deviceScriptMenus.contains(deviceId))
+        return;
+
+    QMenu* scriptsMenu = deviceScriptMenus.value(deviceId);
+    scriptsMenu->clear();
+
+    if (scripts.isEmpty())
+        return;
+
+    for (const auto& script : scripts) {
+        QFileInfo fileInfo(script);
+        QAction* action = scriptsMenu->addAction(fileInfo.baseName());
+        connect(action, &QAction::triggered, this, [fileInfo, ip, dnsName]() {
+            qDebug() << "Running script:" << fileInfo.absoluteFilePath();
+            QProcess::startDetached(fileInfo.absoluteFilePath(), { ip, dnsName });
+        });
+    }
+}
+
+void TrayMenuManager::onScriptsUpdated() {
+    auto scripts = scriptManager.getDefinedScripts();
+    if (scripts.isEmpty())
+        return;
+
+    for (auto it = deviceScriptMenus.begin(); it != deviceScriptMenus.end(); ++it) {
+        const QString& deviceId = it.key();
+        rebuildScriptsMenu(deviceId, storedDeviceIps[deviceId], storedDeviceDns[deviceId]);
+    }
 }
 
 void TrayMenuManager::buildAccountsMenu() const {
