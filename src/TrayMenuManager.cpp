@@ -528,6 +528,13 @@ void TrayMenuManager::onScriptsUpdated() {
     if (scripts.isEmpty())
         return;
 
+    if (deviceScriptMenus.isEmpty()) {
+        for (auto id : storedDeviceIps.keys()) {
+            rebuildScriptsMenu(id, storedDeviceIps[id], storedDeviceDns[id]);
+        }
+        return;
+    }
+
     for (auto it = deviceScriptMenus.begin(); it != deviceScriptMenus.end(); ++it) {
         const QString& deviceId = it.key();
         rebuildScriptsMenu(deviceId, storedDeviceIps[deviceId], storedDeviceDns[deviceId]);
