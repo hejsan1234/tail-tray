@@ -528,6 +528,22 @@ void TrayMenuManager::onScriptsUpdated() {
     if (scripts.isEmpty())
         return;
 
+    if (scripts.isEmpty()) {
+        for (auto it = deviceScriptMenus.begin(); it != deviceScriptMenus.end(); ) {
+            QMenu* scriptsMenu = it.value();
+            if (scriptsMenu) {
+                if (auto* parentMenu = qobject_cast<QMenu*>(scriptsMenu->parentWidget())) {
+                    parentMenu->removeAction(scriptsMenu->menuAction());
+                }
+    
+                scriptsMenu->deleteLater();
+            }
+            it = deviceScriptMenus.erase(it);
+        }
+        return;
+    }
+
+
     if (deviceScriptMenus.isEmpty()) {
         for (auto id : storedDeviceIps.keys()) {
             rebuildScriptsMenu(id, storedDeviceIps[id], storedDeviceDns[id]);
